@@ -483,6 +483,43 @@ class PointTracker(object):
         if i == N-2:
           clr2 = (255, 0, 0)
           cv2.circle(out, p2, stroke, clr2, -1, lineType=16)
+  
+  def get_latest_matches(self):
+    """ Get the feature point matches between the latest frame and the previous
+        frame.
+    Inputs
+      None.
+    Output 
+      An Mx5 numpy array, for M feature matches, with the pixel coordinates of 
+      the features from the latest frame, and the previous frame in the order
+      [track_id, x1, y1, x2, y2]'
+    """
+    # Store the number of points per camera.
+    pts_mem = self.all_pts
+    N = len(pts_mem) # Number of cameras/images.
+    # Get offset ids needed to reference into pts_mem.
+    offsets = self.get_offsets()
+    matches = np.zeros((0, 5))
+    i = N - 2
+    offset1 = offsets[i]
+    offset2 = offsets[i+1]
+    for track in self.tracks:
+      if track[i+2] == -1 or track[i+3] == -1:
+        continue
+      track_id = track[0]
+      idx1 = int(track[i+2]-offset1)
+      idx2 = int(track[i+3]-offset2)
+      pt1 = pts_mem[i][:2, idx1]
+      pt2 = pts_mem[i+1][:2, idx2]
+      p1 = (int(round(pt1[0])), int(round(pt1[1])))
+      p2 = (int(round(pt2[0])), int(round(pt2[1])))
+      match = np.concatenate((np.array([track_id]), pt1, pt2))
+      matches = np.vstack((matches, match))
+    # print(matches.astype(int))
+    # time.sleep(1)
+    return matches
+
+    
 
 class VideoStreamer(object):
   """ Class to help process image streams. Three types of possible inputs:"
@@ -551,14 +588,16 @@ class VideoStreamer(object):
     Returns
        image: Next H x W image.
        status: True or False depending whether image was loaded.
+       file: Name of image file, or frame number if streaming from camera.
     """
     if self.i == self.maxlen:
-      return (None, False)
+      return (None, False, '')
     if self.camera:
+      image_file = '%09d' % self.i
       ret, input_image = self.cap.read()
       if ret is False:
         print('VideoStreamer: Cannot get image from camera (maybe bad --camid?)')
-        return (None, False)
+        return (None, False, '')
       if self.video_file:
         self.cap.set(cv2.CAP_PROP_POS_FRAMES, self.listing[self.i])
       input_image = cv2.resize(input_image, (self.sizer[1], self.sizer[0]),
@@ -571,7 +610,7 @@ class VideoStreamer(object):
     # Increment internal counter.
     self.i = self.i + 1
     input_image = input_image.astype('float32')
-    return (input_image, True)
+    return (input_image, True, image_file)
 
 
 if __name__ == '__main__':
@@ -592,8 +631,8 @@ if __name__ == '__main__':
       help='Input image height (default: 120).')
   parser.add_argument('--W', type=int, default=160,
       help='Input image width (default:160).')
-  parser.add_argument('--display_scale', type=int, default=2,
-      help='Factor to scale output visualization (default: 2).')
+  parser.add_argument('--display_scale', type=int, default=1,
+      help='Factor to scale output visualization (default: 1).')
   parser.add_argument('--min_length', type=int, default=2,
       help='Minimum length of point tracks (default: 2).')
   parser.add_argument('--max_length', type=int, default=5,
@@ -616,6 +655,8 @@ if __name__ == '__main__':
       help='Save output frames to a directory (default: False)')
   parser.add_argument('--write_dir', type=str, default='tracker_outputs/',
       help='Directory where to write output frames (default: tracker_outputs/).')
+  parser.add_argument('--save_matches', action='store_true',
+      help='Save frame to frame matches (default: False).')
   opt = parser.parse_args()
   print(opt)
 
@@ -659,9 +700,10 @@ if __name__ == '__main__':
     start = time.time()
 
     # Get a new image.
-    img, status = vs.next_frame()
+    img, status, image_file = vs.next_frame()
     if status is False:
       break
+    print(image_file)
 
     # Get points and descriptors.
     start1 = time.time()
@@ -670,6 +712,13 @@ if __name__ == '__main__':
 
     # Add points and descriptors to the tracker.
     tracker.update(pts, desc)
+
+    if opt.save_matches:
+      # Get latest matches.
+      frame_matches_file = image_file + '.csv'
+      print(frame_matches_file)
+      m = tracker.get_latest_matches()
+      np.savetxt(frame_matches_file, m, fmt='%d', delimiter=',')
 
     # Get tracks for points which were match successfully across all frames.
     tracks = tracker.get_tracks(opt.min_length)
@@ -720,7 +769,7 @@ if __name__ == '__main__':
       out_file = os.path.join(opt.write_dir, 'frame_%05d.png' % vs.i)
       print('Writing image to %s' % out_file)
       cv2.imwrite(out_file, out)
-
+    
     end = time.time()
     net_t = (1./ float(end1 - start))
     total_t = (1./ float(end - start))
