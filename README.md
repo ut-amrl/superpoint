@@ -79,7 +79,7 @@ You should see the following output from the NYU sequence snippet:
 
 * Use `--H` to change the input image height (default: 120).
 * Use `--W` to change the input image width (default: 160).
-* Use `--display_scale` to scale the output visualization image height and width (default: 2).
+* Use `--display_scale` to scale the output visualization image height and width (default: 1).
 * Use `--cuda` flag to enable the GPU.
 * Use `--img_glob` to change the image file extension (default: *.png).
 * Use `--min_length` to change the minimum track length (default: 2).
@@ -87,6 +87,7 @@ You should see the following output from the NYU sequence snippet:
 * Use `--conf_thresh` to change the point confidence threshold (default: 0.015).
 * Use `--nn_thresh` to change the descriptor matching distance threshold (default: 0.7).
 * Use `--show_extra` to show more computer vision outputs.
+* Use `--save_matches` to save frame to frame matches (default: False).
 * Press the `q` key to quit.
 
 
