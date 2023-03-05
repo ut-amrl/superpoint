@@ -116,13 +116,16 @@ if __name__ == '__main__':
   # Parse command line arguments.
   parser = argparse.ArgumentParser(description='SuperPoint C++ Export.')
   parser.add_argument('--output', type=str, 
-      default='superpoint_traced_model.pt',
+      default='superpoint_v1.pt',
       help='Path to traced model output file.')
   parser.add_argument('--weights_path', type=str, default='superpoint_v1.pth',
       help='Path to pretrained weights file (default: superpoint_v1.pth).')
-  
   parser.add_argument('--cuda', action='store_true',
       help='Use cuda GPU to speed up network processing speed (default: False)')
+  parser.add_argument('--H', type=int, default=480,
+      help='Input image height (default: 480).')
+  parser.add_argument('--W', type=int, default=640,
+      help='Input image width (default: 640).')
   
   opt = parser.parse_args()
   print(opt)
@@ -143,8 +146,7 @@ if __name__ == '__main__':
   
   # Create a random image tensor.
   print('==> Generating random image tensor.')
-  H, W = 480, 640
-  x = torch.rand(1, 1, H, W)
+  x = torch.rand(1, 1, opt.H, opt.W)
   if opt.cuda:
     x = x.cuda()  
   print('==> Tracing model.')

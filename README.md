@@ -90,6 +90,30 @@ You should see the following output from the NYU sequence snippet:
 * Use `--save_matches` to save frame to frame matches (default: False).
 * Press the `q` key to quit.
 
+### Run PyTorch tracing to save the model as a TorchScript file
+```sh
+./cpp_export.py
+```
+
+* Use `--output` flag to change the output file name (default: superpoint_v1.pt).
+* Use `--cuda` flag to enable the GPU.
+* Use `--H` to change the input image height (default: 480).
+* Use `--W` to change the input image width (default: 640).
+* Use `--weights_path` to change the path to the pretrained weights file (default: superpoint_v1.pth).
+
+### Run the C++ demo
+```sh
+../bin/superpoint_script_test
+```
+
+* Use `--model` flag to change the model file name (default: superpoint_v1.pt).
+* Use `--input` Path to the image files directory (default: assets/ut_amrl_husky/).
+* Use `--cuda` flag to enable the GPU.
+* Use `--height` to change the input image height (default: 480).
+* Use `--width` to change the input image width (default: 640).
+* Use `--num` to change the number of images to perform inference on. Images
+  will be reused if there are not enough (default: 100).
+* Use `--no_display` to disable the display of the output image.
 
 ## BibTeX Citation
 ```txt

@@ -33,93 +33,58 @@
 #include "gflags/gflags.h"
 #include "glog/logging.h"
 
-DEFINE_string(model, "superpoint_traced_model.pt", "Path to the model file.");
-DEFINE_string(input, "assets/icl_snippet/250.png", "Path to the image file.");
+DEFINE_string(model, "superpoint_v1.pt", "Path to the model file.");
+DEFINE_string(input, "assets/ut_amrl_husky/", 
+    "Path to the image files directory.");
 DEFINE_bool(cuda, false, "Use CUDA for inference.");
 DEFINE_int32(width, 640, "Width of the image.");
 DEFINE_int32(height, 480, "Height of the image.");
-DEFINE_int32(repeat, 1, "Number of times to repeat the inference.");
+DEFINE_int32(num, 100, "Number of images to perform inference on -- will repeat"
+    " images if there are not enough images in the directory.");
 DEFINE_bool(no_display, false, "Do not display the image.");
 
-int main(int argc, char* argv[]) {
-  // Initialize the gflags library.
-  gflags::ParseCommandLineFlags(&argc, &argv, true);
-  // Initialize the Google's logging library.
-  google::InitGoogleLogging(argv[0]);
+void LoadImages(const std::string& path, int N,  std::vector<cv::Mat>* images) {
+  std::vector<std::string> files;
+  cv::glob(path, files);
+  CHECK(!files.empty()) << "No files found in " << FLAGS_input;
+  CHECK(images != nullptr);
+  images->clear();
+  for (const auto& file : files) {
+    printf("\rLoading image %d/%d: %s    ", 
+           static_cast<int>(images->size()), N, file.c_str());
+    fflush(stdout);
+    try {
+      cv::Mat image = cv::imread(file, cv::IMREAD_GRAYSCALE);
+      // If the image is empty, skip it.
+      if (image.empty()) {
+        LOG(WARNING) << "Not a valid image: " << file;
+        continue;
+      }
+      cv::resize(image, image, cv::Size(FLAGS_width, FLAGS_height));
+      cv::Mat image_float;
+      image.convertTo(image_float, CV_32F, 1.0 / 255.0);
+      images->push_back(image_float);
+    } catch (const std::exception& ex) {
+      LOG(ERROR) << "Could not load image " << file << ": " << ex.what();
+      continue;
+    }
+    if (images->size() == N) break;
+  }
+  printf("\n");
+}
 
-  printf("CUDA: %d\n", FLAGS_cuda);
-  if (FLAGS_cuda && !torch::cuda::is_available()) {
-    std::cerr << "error: CUDA is not available" << std::endl;
-    return -1;
-  }
-  
-  printf("Loading model... ");
-  fflush(stdout);
-  torch::jit::script::Module module;
-  const double t_load_start = cv::getTickCount();
-  try {
-    // Deserialize the ScriptModule from a file using torch::jit::load().
-    module = torch::jit::load(FLAGS_model);
-    if (FLAGS_cuda) module.to(at::kCUDA);
-    // Hot-start the model with a random image.
-    torch::Tensor tensor_image = torch::rand({1, 1, FLAGS_height, FLAGS_width});
-    tensor_image = tensor_image.toType(torch::kFloat);
-    if (FLAGS_cuda) tensor_image = tensor_image.to(torch::kCUDA);
-    module.forward(std::vector<torch::jit::IValue>({tensor_image}));
-  }
-  catch (const c10::Error& e) {
-    std::cerr << "error loading the model\n";
-    return -1;
-  }
-  const double t_load_end = cv::getTickCount();
-  const double t_load = (t_load_end - t_load_start) / cv::getTickFrequency();
-  printf("Done in %f ms.\n", t_load * 1000);
-  
-  // Load an example image from file and resize it to 
-  // FLAGS_width x FLAGS_height.
-  cv::Mat image = cv::imread(FLAGS_input, cv::IMREAD_GRAYSCALE);
-  cv::resize(image, image, cv::Size(FLAGS_width, FLAGS_height));
-  cv::Mat image_float;
-  image.convertTo(image_float, CV_32F, 1.0 / 255.0);
-  
-  // Convert the image to a 1 x 1 x FLAGS_width x FLAGS_height tensor.
+torch::Tensor CVImageToTensor(const cv::Mat& image) {
   torch::Tensor tensor_image = 
-      torch::from_blob(image_float.data, {1, 1, FLAGS_height, FLAGS_width});
+      torch::from_blob(image.data, {1, 1, FLAGS_height, FLAGS_width});
   tensor_image = tensor_image.toType(torch::kFloat);
   if (FLAGS_cuda) tensor_image = tensor_image.to(torch::kCUDA);
+  CHECK(std::isfinite(tensor_image.max().item<float>()));
+  return tensor_image;
+}
 
-  // Interest point confidence and descriptor.
-  torch::Tensor semi;
-  torch::Tensor desc;
-  try {
-    const double start = cv::getTickCount();
-    c10::intrusive_ptr<c10::ivalue::Tuple> output;
-    for (int i = 0; i < FLAGS_repeat; ++i) {
-      // Print a nice progress bar.
-      printf("\rInference progress: %d/%d", i + 1, FLAGS_repeat);
-      fflush(stdout);
-      output = module.forward(
-          std::vector<torch::jit::IValue>({tensor_image})).toTuple();
-    }
-    printf("\n");
-    const double end = cv::getTickCount();
-    const double time = (end - start) / cv::getTickFrequency();
-    printf("Inference time: %f ms.\n", time * 1000 / FLAGS_repeat);
-    CHECK_EQ(output->elements().size(), 2);
-    semi = output->elements()[0].toTensor();
-    desc = output->elements()[1].toTensor();
-    if (FLAGS_cuda) {
-      semi = semi.to(torch::kCPU);
-      desc = desc.to(torch::kCPU);
-    }
-  } catch (const c10::Error& e) {
-    std::cerr << "error running the model: " << e.msg() << std::endl;
-    return -1;
-  }
-  
-  
-  // std::cout << "semi size: " << semi.sizes() << std::endl;
-  // std::cout << "desc size: " << desc.sizes() << std::endl;
+void DisplayResults(cv::Mat image, 
+                    torch::Tensor& semi, 
+                    torch::Tensor& desc) {
   // Expected sizes:
   // semi: N x 65 x H/8 x W/8.
   CHECK_EQ(semi.sizes(), 
@@ -127,11 +92,7 @@ int main(int argc, char* argv[]) {
   // desc: N x 256 x H/8 x W/8.
   CHECK_EQ(desc.sizes(), 
            torch::IntArrayRef({1, 256, FLAGS_height / 8, FLAGS_width / 8}));
- 
-  if (FLAGS_no_display) {
-    return 0;
-  }
-
+      
   semi = semi.squeeze();
   semi = semi.exp();
   semi = semi / (torch::sum(semi, 0) + 0.00001);
@@ -144,7 +105,7 @@ int main(int argc, char* argv[]) {
   nodust = nodust.reshape({FLAGS_height / kCell, FLAGS_width / kCell, kCell, kCell});
   nodust = nodust.permute({0, 2, 1, 3});  
   nodust = nodust.reshape({FLAGS_height, FLAGS_width});
-  
+
   float min_conf = 0.001;
   nodust = torch::where(nodust < min_conf, torch::full_like(nodust, min_conf), nodust);
   nodust = -nodust.log();
@@ -161,20 +122,105 @@ int main(int argc, char* argv[]) {
                                        {0.99910873, 0.07334786, 0.        },
                                        {0.5       , 0.        , 0.        }});
   nodust = nodust * 10;
+  
   nodust = torch::clamp(nodust, 0, 9);
   nodust = nodust.round();
+  
   nodust = myjet.index({nodust.to(torch::kInt64), 
                         torch::indexing::Slice()});
   nodust = nodust * 255;
   nodust = nodust.to(torch::kUInt8);
   
-  cv::Mat heatmap = 
-      cv::Mat(FLAGS_height, FLAGS_width, CV_8UC3, nodust.data_ptr());
-  cv::cvtColor(image, image, cv::COLOR_GRAY2BGR);
   cv::Mat display;
-  cv::hconcat(image, heatmap, display);
+  try {
+    cv::Mat heatmap = 
+        cv::Mat(FLAGS_height, FLAGS_width, CV_8UC3, nodust.data_ptr());
+    cv::Mat image_8u;
+    image.convertTo(image_8u, CV_8U, 255.0);
+    cv::cvtColor(image_8u, image_8u, cv::COLOR_GRAY2BGR);
+    cv::hconcat(image_8u, heatmap, display);
+  } catch (const std::exception& e) {
+    std::cout << "Exception: " << e.what() << std::endl;
+  }
   cv::imshow("Display", display);
-  cv::waitKey(0);
+  cv::waitKey(30);
+}
+
+torch::jit::script::Module LoadSuperPointModel(
+    const std::string& file, bool cuda) {
+  torch::jit::script::Module module;
+  try {
+    // Deserialize the ScriptModule from file.
+    module = torch::jit::load(file);
+    if (cuda) module.to(at::kCUDA);
+    // Hot-start the model with a random image.
+    torch::Tensor tensor_image = torch::rand({1, 1, FLAGS_height, FLAGS_width});
+    tensor_image = tensor_image.toType(torch::kFloat);
+    if (cuda) tensor_image = tensor_image.to(torch::kCUDA);
+    module.forward(std::vector<torch::jit::IValue>({tensor_image}));
+  } catch (const c10::Error& e) {
+    LOG(FATAL) << "Error loading the model from " << file;
+  }
+  return module;
+}
+
+int main(int argc, char* argv[]) {
+  // Initialize the gflags library.
+  gflags::ParseCommandLineFlags(&argc, &argv, true);
+  // Initialize the Google's logging library.
+  google::InitGoogleLogging(argv[0]);
+
+  printf("CUDA: %d\n", FLAGS_cuda);
+  if (FLAGS_cuda && !torch::cuda::is_available()) {
+    std::cerr << "error: CUDA is not available" << std::endl;
+    return -1;
+  }
   
+  printf("Loading model... ");
+  fflush(stdout);
+  const double t_load_start = cv::getTickCount();
+  torch::jit::script::Module module = 
+      LoadSuperPointModel(FLAGS_model, FLAGS_cuda);
+  const double t_load_end = cv::getTickCount();
+  const double t_load = (t_load_end - t_load_start) / cv::getTickFrequency();
+  printf("Done in %f ms.\n", t_load * 1000);
+  
+  printf("Loading images... ");
+  fflush(stdout);
+  std::vector<cv::Mat> images;
+  LoadImages(FLAGS_input, FLAGS_num, &images);
+  printf("Done.\n");
+  CHECK(!images.empty());
+  printf("Loaded %lu images.\n", images.size());
+  
+  const double start = cv::getTickCount();
+  for (int i = 0; i < FLAGS_num; ++i) {
+    c10::intrusive_ptr<c10::ivalue::Tuple> output;
+    printf("\rInference progress: %d/%d", i + 1, FLAGS_num);
+    fflush(stdout);
+    cv::Mat image = images[i % images.size()];
+    try {
+      torch::Tensor tensor_image = CVImageToTensor(image);
+      output = module.forward(
+          std::vector<torch::jit::IValue>({tensor_image})).toTuple();
+    } catch (const c10::Error& e) {
+      std::cerr << "error running the model: " << e.msg() << std::endl;
+      return -1;
+    }
+    CHECK_EQ(output->elements().size(), 2);
+    if (!FLAGS_no_display) {
+      torch::Tensor semi = output->elements()[0].toTensor();
+      torch::Tensor desc = output->elements()[1].toTensor();
+      if (FLAGS_cuda) {
+        semi = semi.to(torch::kCPU);
+        desc = desc.to(torch::kCPU);
+      }
+      DisplayResults(image, semi, desc);
+    }
+  }
+  printf("\n");
+  const double end = cv::getTickCount();
+  const double time = (end - start) / cv::getTickFrequency();
+  printf("Inference time: %f ms.\n", time * 1000 / FLAGS_num);
   return 0;
 }
