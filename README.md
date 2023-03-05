@@ -103,11 +103,11 @@ You should see the following output from the NYU sequence snippet:
 
 ### Run the C++ demo
 ```sh
-../bin/superpoint_script_test
+./bin/superpoint_script_test
 ```
 
 * Use `--model` flag to change the model file name (default: superpoint_v1.pt).
-* Use `--input` Path to the image files directory (default: assets/ut_amrl_husky/).
+* Use `--input` flag to specify the path to the image files directory (default: assets/ut_amrl_husky/).
 * Use `--cuda` flag to enable the GPU.
 * Use `--height` to change the input image height (default: 480).
 * Use `--width` to change the input image width (default: 640).
