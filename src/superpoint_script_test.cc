@@ -116,7 +116,7 @@ void GetKeypoints(torch::Tensor& semi,
       torch::nonzero(nodust > FLAGS_min_conf).toType(torch::kInt64);
 
   try {
-    const auto PrintTensor = [&kDebug](
+    const auto PrintTensor = [](
         const std::string s, const torch::Tensor& tensor) {
       if (!kDebug) return;
       std::cout << std::endl << s << ":" << tensor.sizes() << std::endl;
@@ -139,7 +139,19 @@ void GetKeypoints(torch::Tensor& semi,
         ys + FLAGS_nms_dist},
         1).toType(torch::kFloat);
     PrintTensor("bboxes", bboxes);
-
+    // Copy bbooxes to the CPU.
+    if (false) {
+      bboxes = bboxes.to(torch::kCPU);
+      // Iterate over the rows of bboxes and clamp the values to be within the
+      // image.
+      for (int i = 0; i < bboxes.size(0); ++i) {
+        bboxes[i][0] = 0;
+        bboxes[i][1] = 0;
+        bboxes[i][2] = 0;
+        bboxes[i][3] = 0;
+      }
+      return;
+    }
     // Reshape conf to a 1D tensor.
     conf = conf.reshape({-1});
     torch::Tensor nms_indexes = vision::ops::nms(bboxes, conf, FLAGS_nms_dist);
