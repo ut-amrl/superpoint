@@ -115,7 +115,7 @@ if __name__ == '__main__':
 
   # Parse command line arguments.
   parser = argparse.ArgumentParser(description='SuperPoint C++ Export.')
-  parser.add_argument('--output', type=str, 
+  parser.add_argument('--output', type=str,
       default='superpoint_v1.pt',
       help='Path to traced model output file.')
   parser.add_argument('--weights_path', type=str, default='superpoint_v1.pth',
@@ -126,7 +126,7 @@ if __name__ == '__main__':
       help='Input image height (default: 480).')
   parser.add_argument('--W', type=int, default=640,
       help='Input image width (default: 640).')
-  
+
   opt = parser.parse_args()
   print(opt)
 
@@ -143,12 +143,12 @@ if __name__ == '__main__':
                         map_location=lambda storage, loc: storage))
   net.eval()
   print('==> Successfully loaded pre-trained network.')
-  
+
   # Create a random image tensor.
   print('==> Generating random image tensor.')
   x = torch.rand(1, 1, opt.H, opt.W)
   if opt.cuda:
-    x = x.cuda()  
+    x = x.cuda()
   print('==> Tracing model.')
   traced_script_module = torch.jit.trace(net, x)
   print('==> Exporting model to: ', opt.output)

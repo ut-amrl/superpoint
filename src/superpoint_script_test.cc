@@ -29,6 +29,8 @@
 #include "opencv2/imgproc/imgproc.hpp"
 #include "torch/script.h"
 #include "torch/torch.h"
+#include "torchvision/vision.h"
+#include "torchvision/ops/nms.h"
 
 #include "gflags/gflags.h"
 #include "glog/logging.h"
@@ -43,6 +45,7 @@ DEFINE_int32(num, 100, "Number of images to perform inference on -- will repeat"
     " images if there are not enough images in the directory.");
 DEFINE_bool(no_display, false, "Do not display the image.");
 DEFINE_double(min_conf, 0.015, "Minimum confidence for a keypoint.");
+DEFINE_int32(nms_dist, 4, "Non-maximum suppression distance.");
 
 void LoadImages(const std::string& path, int N,  std::vector<cv::Mat>* images) {
   std::vector<std::string> files;
@@ -85,6 +88,7 @@ torch::Tensor CVImageToTensor(const cv::Mat& image) {
 
 void GetKeypoints(torch::Tensor& semi,
                   torch::Tensor& desc) {
+  static const bool kDebug = false;
   // Expected sizes:
   // semi: N x 65 x H/8 x W/8.
   CHECK_EQ(semi.sizes(),
@@ -112,8 +116,9 @@ void GetKeypoints(torch::Tensor& semi,
       torch::nonzero(nodust > FLAGS_min_conf).toType(torch::kInt64);
 
   try {
-    const auto PrintTensor = [](
+    const auto PrintTensor = [&kDebug](
         const std::string s, const torch::Tensor& tensor) {
+      if (!kDebug) return;
       std::cout << std::endl << s << ":" << tensor.sizes() << std::endl;
       std::cout << tensor.slice(0, 0, 10) << std::endl;
     };
@@ -125,20 +130,25 @@ void GetKeypoints(torch::Tensor& semi,
     PrintTensor("ys", ys);
     // Add a third column to the points tensor, and set the values to the entries
     // in nodust at the coordinates in points.
-    torch::Tensor values =  nodust.index({ys, xs});
-    PrintTensor("values1", values);
-    values = torch::cat({xs, ys, values}, 1);
-    PrintTensor("values2", values);
-    // torch::Tensor conf = nodust.index({points});
-    // std::cout << "conf: " << conf.sizes() << std::endl;
-    // std::cout << "conf: " << conf.slice(0, 0, 10) << std::endl;
-    // points = torch::cat({points, conf}, 1);
-    // points = torch::cat({points, nodust.index(points)});
+    torch::Tensor conf =  nodust.index({ys, xs});
+    PrintTensor("conf", conf);
+    torch::Tensor bboxes = torch::cat({
+        xs - FLAGS_nms_dist,
+        ys - FLAGS_nms_dist,
+        xs + FLAGS_nms_dist,
+        ys + FLAGS_nms_dist},
+        1).toType(torch::kFloat);
+    PrintTensor("bboxes", bboxes);
 
-    // Print the shape of the points tensor.
-    std::cout << std::endl << "points: " << points.sizes() << std::endl;
-    // Print the first 10 points.
-    std::cout << "points: " << points.slice(0, 0, 10) << std::endl;
+    // Reshape conf to a 1D tensor.
+    conf = conf.reshape({-1});
+    torch::Tensor nms_indexes = vision::ops::nms(bboxes, conf, FLAGS_nms_dist);
+    PrintTensor("nms_indexes", nms_indexes);
+
+    torch::Tensor nms_points = torch::cat(
+        {xs.index({nms_indexes}), ys.index({nms_indexes})}, 1);
+    PrintTensor("nms_points", nms_points);
+
   } catch (const std::exception& ex) {
     LOG(ERROR) << "Could not get keypoints: " << ex.what();
   }
