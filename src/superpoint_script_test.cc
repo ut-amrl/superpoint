@@ -39,7 +39,6 @@
 #include "superpoint_script.h"
 
 using superpoint_script::SuperPointScript;
-using superpoint_script::SuperPointScript::Options;
 
 DEFINE_string(model, "superpoint_v1.pt", "Path to the model file.");
 DEFINE_string(input, "assets/ut_amrl_husky/",
@@ -333,7 +332,7 @@ SuperPointScript::Options LoadOptions() {
   options.width = FLAGS_width;
   options.height = FLAGS_height;
   options.nms_dist = FLAGS_nms_dist;
-  options.conf_thresh = FLAGS_conf_thresh;
+  options.conf_thresh = FLAGS_min_conf;
   options.border = FLAGS_border;
   options.cuda = FLAGS_cuda;
   return options;

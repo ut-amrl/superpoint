@@ -41,17 +41,45 @@ SuperPointScript::SuperPointScript(const string& model_path,
     : options_(options) {
   try {
     // Deserialize the ScriptModule from model_path.
-    module_ = torch::jit::load(model_path);
-    if (options_.cuda) module.to(at::kCUDA);
+    model_ = torch::jit::load(model_path);
+    if (options_.cuda) model_.to(at::kCUDA);
     // Hot-start the model with a random image.
-    torch::Tensor tensor_image = torch::rand({1, 1, FLAGS_height, FLAGS_width});
+    torch::Tensor tensor_image = torch::rand(
+        {1, 1, options_.height, options_.width});
     tensor_image = tensor_image.toType(torch::kFloat);
     if (options_.cuda) tensor_image = tensor_image.to(torch::kCUDA);
-    module.forward(std::vector<torch::jit::IValue>({tensor_image}));
+    model_.forward(std::vector<torch::jit::IValue>({tensor_image}));
   } catch (const c10::Error& e) {
     LOG(FATAL) << "Error loading the model from " << model_path;
   }
-  return module;
+}
+
+torch::Tensor SuperPointScript::CVImageToTensor(const cv::Mat& image) {
+  torch::Tensor tensor_image =
+      torch::from_blob(image.data, {1, 1, options_.height, options_.width});
+  tensor_image = tensor_image.toType(torch::kFloat);
+  if (options_.cuda) tensor_image = tensor_image.to(torch::kCUDA);
+  CHECK(std::isfinite(tensor_image.max().item<float>()));
+  return tensor_image;
+}
+
+bool SuperPointScript::Run(const cv::Mat& image,
+                           torch::Tensor* keypoints,
+                           torch::Tensor* descriptors,
+                           torch::Tensor* confidences) {
+  // Convert the image to a tensor.
+  torch::Tensor tensor_image = CVImageToTensor(image);
+  // Run the model.
+  c10::intrusive_ptr<c10::ivalue::Tuple> outputs = model_.forward(
+      std::vector<torch::jit::IValue>({tensor_image})).toTuple();
+  if (outputs->elements().size() != 2) {
+    LOG(ERROR) << "Expected 2 outputs from the model, got "
+               << outputs->elements().size();
+    return false;
+  }
+  torch::Tensor semi = outputs->elements()[0].toTensor();
+  torch::Tensor desc = outputs->elements()[1].toTensor();
+  return true;
 }
 
 }  // namespace superpoint_script
