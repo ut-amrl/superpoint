@@ -20,6 +20,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
+#include <stdarg.h>
 #include <stdio.h>
 #include <iostream>
 #include <memory>
@@ -35,6 +36,11 @@
 #include "gflags/gflags.h"
 #include "glog/logging.h"
 
+#include "superpoint_script.h"
+
+using superpoint_script::SuperPointScript;
+using superpoint_script::SuperPointScript::Options;
+
 DEFINE_string(model, "superpoint_v1.pt", "Path to the model file.");
 DEFINE_string(input, "assets/ut_amrl_husky/",
     "Path to the image files directory.");
@@ -46,6 +52,9 @@ DEFINE_int32(num, 100, "Number of images to perform inference on -- will repeat"
 DEFINE_bool(no_display, false, "Do not display the image.");
 DEFINE_double(min_conf, 0.015, "Minimum confidence for a keypoint.");
 DEFINE_int32(nms_dist, 4, "Non-maximum suppression distance.");
+DEFINE_double(border, 4, "Border to remove from the image.");
+DEFINE_string(write_dir, "", "Directory to write the output images to.");
+DECLARE_int32(v);
 
 void LoadImages(const std::string& path, int N,  std::vector<cv::Mat>* images) {
   std::vector<std::string> files;
@@ -86,15 +95,20 @@ torch::Tensor CVImageToTensor(const cv::Mat& image) {
   return tensor_image;
 }
 
-void GetKeypoints(torch::Tensor& semi,
-                  torch::Tensor& desc) {
-  static const bool kDebug = false;
+// Performn non-maximum suppression on the interest-point and descriptor outputs
+// from SuperPoint.
+// Inputs:
+//   semi: N x 2, where N is the number of keypoints.
+torch::Tensor GetKeypoints(torch::Tensor& semi_orig,
+                           torch::Tensor& coarse_desc) {
+  torch::Tensor semi = semi_orig.clone();
   // Expected sizes:
   // semi: N x 65 x H/8 x W/8.
+  printf("\n");
   CHECK_EQ(semi.sizes(),
            torch::IntArrayRef({1, 65, FLAGS_height / 8, FLAGS_width / 8}));
   // desc: N x 256 x H/8 x W/8.
-  CHECK_EQ(desc.sizes(),
+  CHECK_EQ(coarse_desc.sizes(),
            torch::IntArrayRef({1, 256, FLAGS_height / 8, FLAGS_width / 8}));
 
   semi = semi.squeeze();
@@ -115,10 +129,12 @@ void GetKeypoints(torch::Tensor& semi,
   torch::Tensor points =
       torch::nonzero(nodust > FLAGS_min_conf).toType(torch::kInt64);
 
+  torch::Tensor nms_points;
+
   try {
     const auto PrintTensor = [](
         const std::string s, const torch::Tensor& tensor) {
-      if (!kDebug) return;
+      if (FLAGS_v < 2) return;
       std::cout << std::endl << s << ":" << tensor.sizes() << std::endl;
       std::cout << tensor.slice(0, 0, 10) << std::endl;
     };
@@ -126,49 +142,83 @@ void GetKeypoints(torch::Tensor& semi,
         points.index({torch::indexing::Slice(), 1}).reshape({-1, 1});
     torch::Tensor ys =
         points.index({torch::indexing::Slice(), 0}).reshape({-1, 1});
-    PrintTensor("xs", xs);
-    PrintTensor("ys", ys);
-    // Add a third column to the points tensor, and set the values to the entries
-    // in nodust at the coordinates in points.
+    // Rmove entries from xs and ys that are too close to the edge.
+    torch::Tensor remove =
+      (xs >= FLAGS_border) &
+      (xs <= FLAGS_width - FLAGS_border) &
+      (ys >= FLAGS_border) &
+      (ys <= FLAGS_height - FLAGS_border);
+    xs = xs.masked_select(remove).reshape({-1, 1});
+    ys = ys.masked_select(remove).reshape({-1, 1});
     torch::Tensor conf =  nodust.index({ys, xs});
-    PrintTensor("conf", conf);
-    torch::Tensor bboxes = torch::cat({
-        xs - FLAGS_nms_dist,
-        ys - FLAGS_nms_dist,
-        xs + FLAGS_nms_dist,
-        ys + FLAGS_nms_dist},
-        1).toType(torch::kFloat);
-    PrintTensor("bboxes", bboxes);
-    // Copy bbooxes to the CPU.
-    if (false) {
-      bboxes = bboxes.to(torch::kCPU);
-      // Iterate over the rows of bboxes and clamp the values to be within the
-      // image.
-      for (int i = 0; i < bboxes.size(0); ++i) {
-        bboxes[i][0] = 0;
-        bboxes[i][1] = 0;
-        bboxes[i][2] = 0;
-        bboxes[i][3] = 0;
-      }
-      return;
-    }
+    torch::Tensor x1 = (xs - FLAGS_nms_dist).clamp(0, FLAGS_width - 1);
+    torch::Tensor x2 = (xs + FLAGS_nms_dist).clamp(0, FLAGS_width - 1);
+    torch::Tensor y1 = (ys - FLAGS_nms_dist).clamp(0, FLAGS_height - 1);
+    torch::Tensor y2 = (ys + FLAGS_nms_dist).clamp(0, FLAGS_height - 1);
+    // PrintTensor("x1", x1);
+    // PrintTensor("x2", x2);
+    torch::Tensor bboxes =
+        torch::cat({x1, y1, x2, y2}, 1).toType(torch::kFloat);
+    // PrintTensor("bboxes", bboxes);
     // Reshape conf to a 1D tensor.
     conf = conf.reshape({-1});
-    torch::Tensor nms_indexes = vision::ops::nms(bboxes, conf, FLAGS_nms_dist);
-    PrintTensor("nms_indexes", nms_indexes);
+    torch::Tensor nms_indexes = vision::ops::nms(bboxes, conf, 0.0);
+    // PrintTensor("nms_indexes", nms_indexes);
 
-    torch::Tensor nms_points = torch::cat(
-        {xs.index({nms_indexes}), ys.index({nms_indexes})}, 1);
-    PrintTensor("nms_points", nms_points);
+    nms_points = torch::cat({
+        xs.index({nms_indexes}),
+        ys.index({nms_indexes}),
+        conf.index({nms_indexes}).reshape({-1, 1})
+        }, 1);
+    // Print the % of points that were retained by NMS.
+    float num_retained = nms_points.size(0) / (float)xs.size(0);
+    printf("NMS retained %6ld / %6ld points (%d%%)\n",
+           nms_points.size(0),
+           xs.size(0),
+           int(num_retained * 100.0));
+    // TODO: Sort the points by confidence.
+    // PrintTensor("nms_points", nms_points);
+
+    // Process the descriptors.
+
+    const int kD = coarse_desc.sizes()[1];
+    torch::Tensor desc;
+    if (nms_points.sizes()[1] == 0) {
+      desc = torch::zeros({kD, 0});
+    } else {
+      // Interpolate into descriptor map using 2D point locations.
+      torch::Tensor samp_pts = nms_points.index({torch::indexing::Slice(),
+                                                 torch::indexing::Slice(0, 2)});
+      // PrintTensor("samp_pts", samp_pts);
+      if (FLAGS_cuda) {
+        samp_pts = samp_pts.to(torch::kCUDA);
+      }
+      samp_pts[0] = (samp_pts[0] / (float(FLAGS_width) / 2.)) - 1.;
+      samp_pts[1] = (samp_pts[1] / (float(FLAGS_height) / 2.)) - 1.;
+      samp_pts = samp_pts.transpose(0, 1).contiguous();
+      samp_pts = samp_pts.view({1, 1, -1, 2});
+      samp_pts = samp_pts.toType(torch::kFloat);
+      desc = torch::nn::functional::grid_sample(
+          coarse_desc,
+          samp_pts,
+          torch::nn::functional::GridSampleFuncOptions().align_corners(false));
+      desc = desc.reshape({kD, -1});
+      desc = desc / torch::norm(desc, 2, 0, true);
+      std::cout << "desc: " << desc.sizes() << std::endl;
+    }
 
   } catch (const std::exception& ex) {
     LOG(ERROR) << "Could not get keypoints: " << ex.what();
   }
+  std::cout << "nms_points: " << nms_points.sizes() << std::endl;
+  return nms_points;
 }
 
 void DisplayResults(cv::Mat image,
                     torch::Tensor& semi,
-                    torch::Tensor& desc) {
+                    torch::Tensor& desc,
+                    torch::Tensor& nms_points,
+                    const std::string& filename) {
   // Expected sizes:
   // semi: N x 65 x H/8 x W/8.
   CHECK_EQ(semi.sizes(),
@@ -224,12 +274,30 @@ void DisplayResults(cv::Mat image,
     cv::Mat image_8u;
     image.convertTo(image_8u, CV_8U, 255.0);
     cv::cvtColor(image_8u, image_8u, cv::COLOR_GRAY2BGR);
+    // Draw the keypoints.
+    int num_keypoints = nms_points.sizes()[0];
+    std::cout << "nms_points: " << nms_points.sizes() << std::endl;
+    for (int i = 0; i < num_keypoints; ++i) {
+      const float x = nms_points[i][0].item<float>();
+      const float y = nms_points[i][1].item<float>();
+      cv::drawMarker(image_8u,
+                     cv::Point(x, y),
+                     cv::Scalar(0, 255, 255),
+                     cv::MARKER_TILTED_CROSS,
+                     4,
+                     1);
+    }
     cv::hconcat(image_8u, heatmap, display);
   } catch (const std::exception& e) {
     std::cout << "Exception: " << e.what() << std::endl;
   }
-  cv::imshow("Display", display);
-  cv::waitKey(30);
+  if (!filename.empty()) {
+    cv::imwrite(filename, display);
+  }
+  if (!FLAGS_no_display) {
+    cv::imshow("Display", display);
+    cv::waitKey(30);
+  }
 }
 
 torch::jit::script::Module LoadSuperPointModel(
@@ -250,6 +318,27 @@ torch::jit::script::Module LoadSuperPointModel(
   return module;
 }
 
+std::string StringPrintf(const char* format, ...) {
+  va_list args;
+  va_start(args, format);
+  const int kBufferSize = 1024;
+  char buffer[kBufferSize];
+  vsnprintf(buffer, kBufferSize, format, args);
+  va_end(args);
+  return std::string(buffer);
+}
+
+SuperPointScript::Options LoadOptions() {
+  SuperPointScript::Options options;
+  options.width = FLAGS_width;
+  options.height = FLAGS_height;
+  options.nms_dist = FLAGS_nms_dist;
+  options.conf_thresh = FLAGS_conf_thresh;
+  options.border = FLAGS_border;
+  options.cuda = FLAGS_cuda;
+  return options;
+}
+
 int main(int argc, char* argv[]) {
   // Initialize the gflags library.
   gflags::ParseCommandLineFlags(&argc, &argv, true);
@@ -264,6 +353,8 @@ int main(int argc, char* argv[]) {
 
   printf("Loading model... ");
   fflush(stdout);
+  SuperPointScript::Options options = LoadOptions();
+  SuperPointScript superpoint(FLAGS_model, options);
   const double t_load_start = cv::getTickCount();
   torch::jit::script::Module module =
       LoadSuperPointModel(FLAGS_model, FLAGS_cuda);
@@ -296,13 +387,19 @@ int main(int argc, char* argv[]) {
     CHECK_EQ(output->elements().size(), 2);
     torch::Tensor semi = output->elements()[0].toTensor();
     torch::Tensor desc = output->elements()[1].toTensor();
-    GetKeypoints(semi, desc);
-    if (!FLAGS_no_display) {
+    torch::Tensor nms_points = GetKeypoints(semi, desc);
+    std::cout << "nms_points: " << nms_points.sizes() << std::endl;
+    std::string filename;
+    if (!FLAGS_write_dir.empty()) {
+      filename = StringPrintf("%s/%06d.png", FLAGS_write_dir.c_str(), i);
+    }
+    if (!FLAGS_no_display || !filename.empty()) {
       if (FLAGS_cuda) {
         semi = semi.to(torch::kCPU);
         desc = desc.to(torch::kCPU);
+        nms_points = nms_points.to(torch::kCPU);
       }
-      DisplayResults(image, semi, desc);
+      DisplayResults(image, semi, desc, nms_points, filename);
     }
   }
   printf("\n");

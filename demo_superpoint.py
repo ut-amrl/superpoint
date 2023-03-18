@@ -152,19 +152,19 @@ class SuperPointFrontend(object):
     """
     Run a faster approximate Non-Max-Suppression on numpy corners shaped:
       3xN [x_i,y_i,conf_i]^T
-  
+
     Algo summary: Create a grid sized HxW. Assign each corner location a 1, rest
     are zeros. Iterate through all the 1's and convert them either to -1 or 0.
     Suppress points by setting nearby values to 0.
-  
+
     Grid Value Legend:
     -1 : Kept.
      0 : Empty or suppressed.
      1 : To be processed (converted to either kept or supressed).
-  
+
     NOTE: The NMS first rounds points to integers, so NMS distance might not
     be exactly dist_thresh. It also assumes points are within image boundaries.
-  
+
     Inputs
       in_corners - 3xN numpy array with corners [x_i, y_i, confidence_i]^T.
       H - Image height.
@@ -278,9 +278,12 @@ class SuperPointFrontend(object):
       samp_pts = samp_pts.float()
       if self.cuda:
         samp_pts = samp_pts.cuda()
+      print('samp_pts size: ', samp_pts.size())
       desc = torch.nn.functional.grid_sample(coarse_desc, samp_pts)
       desc = desc.data.cpu().numpy().reshape(D, -1)
       desc /= np.linalg.norm(desc, axis=0)[np.newaxis, :]
+      # Print desc size.
+      print('desc size: ', desc.shape)
     return pts, desc, heatmap
 
 
@@ -483,14 +486,14 @@ class PointTracker(object):
         if i == N-2:
           clr2 = (255, 0, 0)
           cv2.circle(out, p2, stroke, clr2, -1, lineType=16)
-  
+
   def get_latest_matches(self):
     """ Get the feature point matches between the latest frame and the previous
         frame.
     Inputs
       None.
-    Output 
-      An Mx5 numpy array, for M feature matches, with the pixel coordinates of 
+    Output
+      An Mx5 numpy array, for M feature matches, with the pixel coordinates of
       the features from the latest frame, and the previous frame in the order
       [track_id, x1, y1, x2, y2]'
     """
@@ -519,7 +522,7 @@ class PointTracker(object):
     # time.sleep(1)
     return matches
 
-    
+
 
 class VideoStreamer(object):
   """ Class to help process image streams. Three types of possible inputs:"
@@ -769,7 +772,7 @@ if __name__ == '__main__':
       out_file = os.path.join(opt.write_dir, 'frame_%05d.png' % vs.i)
       print('Writing image to %s' % out_file)
       cv2.imwrite(out_file, out)
-    
+
     end = time.time()
     net_t = (1./ float(end1 - start))
     total_t = (1./ float(end - start))
