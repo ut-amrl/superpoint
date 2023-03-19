@@ -103,7 +103,6 @@ torch::Tensor GetKeypoints(torch::Tensor& semi_orig,
   torch::Tensor semi = semi_orig.clone();
   // Expected sizes:
   // semi: N x 65 x H/8 x W/8.
-  printf("\n");
   CHECK_EQ(semi.sizes(),
            torch::IntArrayRef({1, 65, FLAGS_height / 8, FLAGS_width / 8}));
   // desc: N x 256 x H/8 x W/8.
@@ -171,10 +170,10 @@ torch::Tensor GetKeypoints(torch::Tensor& semi_orig,
         }, 1);
     // Print the % of points that were retained by NMS.
     float num_retained = nms_points.size(0) / (float)xs.size(0);
-    printf("NMS retained %6ld / %6ld points (%d%%)\n",
-           nms_points.size(0),
-           xs.size(0),
-           int(num_retained * 100.0));
+    // printf("NMS retained %6ld / %6ld points (%d%%)\n",
+    //        nms_points.size(0),
+    //        xs.size(0),
+    //        int(num_retained * 100.0));
     // TODO: Sort the points by confidence.
     // PrintTensor("nms_points", nms_points);
 
@@ -203,13 +202,12 @@ torch::Tensor GetKeypoints(torch::Tensor& semi_orig,
           torch::nn::functional::GridSampleFuncOptions().align_corners(false));
       desc = desc.reshape({kD, -1});
       desc = desc / torch::norm(desc, 2, 0, true);
-      std::cout << "desc: " << desc.sizes() << std::endl;
     }
 
   } catch (const std::exception& ex) {
     LOG(ERROR) << "Could not get keypoints: " << ex.what();
   }
-  std::cout << "nms_points: " << nms_points.sizes() << std::endl;
+  // std::cout << "nms_points: " << nms_points.sizes() << std::endl;
   return nms_points;
 }
 
@@ -275,7 +273,6 @@ void DisplayResults(cv::Mat image,
     cv::cvtColor(image_8u, image_8u, cv::COLOR_GRAY2BGR);
     // Draw the keypoints.
     int num_keypoints = nms_points.sizes()[0];
-    std::cout << "nms_points: " << nms_points.sizes() << std::endl;
     for (int i = 0; i < num_keypoints; ++i) {
       const float x = nms_points[i][0].item<float>();
       const float y = nms_points[i][1].item<float>();
@@ -387,7 +384,6 @@ int main(int argc, char* argv[]) {
     torch::Tensor semi = output->elements()[0].toTensor();
     torch::Tensor desc = output->elements()[1].toTensor();
     torch::Tensor nms_points = GetKeypoints(semi, desc);
-    std::cout << "nms_points: " << nms_points.sizes() << std::endl;
     std::string filename;
     if (!FLAGS_write_dir.empty()) {
       filename = StringPrintf("%s/%06d.png", FLAGS_write_dir.c_str(), i);

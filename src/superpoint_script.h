@@ -51,15 +51,24 @@ class SuperPointScript {
   //   keypoints - An N x 3 matrix where each row is a keypoint with columns
   //               (x, y, score).
   //   descriptors - An N x 256 matrix where each row is a descriptor.
-  //   confidences - A W x H matrix of confidence scores.
   // Returns true iff the model ran successfully.
   bool Run(const cv::Mat& image,
            torch::Tensor* keypoints,
-           torch::Tensor* descriptors,
-           torch::Tensor* confidences);
+           torch::Tensor* descriptor);
 
  private:
+  // Converts an OpenCV image to a Torch tensor.
   torch::Tensor CVImageToTensor(const cv::Mat& image);
+  bool GetKeypointsAndDescriptors(const torch::Tensor& semi,
+                                  const torch::Tensor& coarse,
+                                  torch::Tensor* keypoints,
+                                  torch::Tensor* descriptors);
+
+  // Applies non-maxima suppression to the keypoints.
+  bool NonMaximaSuppression(const torch::Tensor& keypoints,
+                            const torch::Tensor& descriptors,
+                            torch::Tensor* keypoints_out,
+                            torch::Tensor* descriptors_out);
   // The TorchScript model.
   torch::jit::script::Module model_;
   Options options_;

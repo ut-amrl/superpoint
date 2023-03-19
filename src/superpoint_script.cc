@@ -65,8 +65,7 @@ torch::Tensor SuperPointScript::CVImageToTensor(const cv::Mat& image) {
 
 bool SuperPointScript::Run(const cv::Mat& image,
                            torch::Tensor* keypoints,
-                           torch::Tensor* descriptors,
-                           torch::Tensor* confidences) {
+                           torch::Tensor* descriptors) {
   // Convert the image to a tensor.
   torch::Tensor tensor_image = CVImageToTensor(image);
   // Run the model.
@@ -79,6 +78,72 @@ bool SuperPointScript::Run(const cv::Mat& image,
   }
   torch::Tensor semi = outputs->elements()[0].toTensor();
   torch::Tensor desc = outputs->elements()[1].toTensor();
+  torch::Tensor nms_keypoints, nms_descriptors;
+  if (!GetKeypointsAndDescriptors(semi, desc, keypoints, descriptors)) {
+    LOG(ERROR) << "Failed to get keypoints and descriptors.";
+    return false;
+  }
+  return true;
+}
+
+bool SuperPointScript::GetKeypointsAndDescriptors(
+    const torch::Tensor& semi_orig,
+    const torch::Tensor& coarse_desc,
+    torch::Tensor* keypoints,
+    torch::Tensor* descriptors) {
+  torch::Tensor semi = semi_orig.clone();
+  // Expected sizes:
+  // semi: N x 65 x H/8 x W/8.
+  CHECK_EQ(semi.sizes(),
+      torch::IntArrayRef({1, 65, options_.height / 8, options_.width / 8}));
+  // desc: N x 256 x H/8 x W/8.
+  CHECK_EQ(coarse_desc.sizes(),
+      torch::IntArrayRef({1, 256, options_.height / 8, options_.width / 8}));
+
+  semi = semi.squeeze();
+  semi = semi.exp();
+  semi = semi / (torch::sum(semi, 0) + 0.00001);
+
+  const int kCell = 8;
+  torch::Tensor nodust = semi.index({torch::indexing::Slice(0, -1),
+                                     torch::indexing::Slice(),
+                                     torch::indexing::Slice()});
+  nodust = nodust.permute({1, 2, 0});
+  nodust = nodust.reshape(
+      {options_.height / kCell, options_.width / kCell, kCell, kCell});
+  nodust = nodust.permute({0, 2, 1, 3});
+  nodust = nodust.reshape({options_.height, options_.width});
+
+  // Find the coordinates of the points in nodust with values greater than 0.5.
+  torch::Tensor points =
+      torch::nonzero(nodust > options_.conf_thresh).toType(torch::kInt64);
+
+  torch::Tensor xs =
+      points.index({torch::indexing::Slice(), 1}).reshape({-1, 1});
+  torch::Tensor ys =
+      points.index({torch::indexing::Slice(), 0}).reshape({-1, 1});
+  torch::Tensor conf =  nodust.index({ys, xs}).reshape({-1, 1});
+  *keypoints = torch::cat({xs, ys, conf}, 1).toType(torch::kFloat32);
+
+  const int kD = coarse_desc.sizes()[1];
+  if (keypoints->sizes()[1] == 0) {
+    *descriptors = torch::zeros({kD, 0});
+  } else {
+    // Interpolate into descriptor map using 2D point locations.
+    torch::Tensor samp_pts =
+        torch::cat({xs, ys}, 1).toType(torch::kFloat32);
+    samp_pts[0] = (samp_pts[0] / (float(options_.width) / 2.)) - 1.;
+    samp_pts[1] = (samp_pts[1] / (float(options_.height) / 2.)) - 1.;
+    samp_pts = samp_pts.transpose(0, 1).contiguous();
+    samp_pts = samp_pts.view({1, 1, -1, 2});
+    samp_pts = samp_pts.toType(torch::kFloat);
+    *descriptors = torch::nn::functional::grid_sample(
+        coarse_desc,
+        samp_pts,
+        torch::nn::functional::GridSampleFuncOptions().align_corners(false));
+    *descriptors = descriptors->reshape({kD, -1});
+    *descriptors = (*descriptors) / torch::norm(*descriptors, 2, 0, true);
+  }
   return true;
 }
 
