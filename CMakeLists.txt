@@ -1,11 +1,12 @@
-PROJECT(superpoint)
-cmake_minimum_required(VERSION 3.1 FATAL_ERROR)
-# set(CMAKE_CXX_STANDARD 14)
+PROJECT(superpoint LANGUAGES CXX)
+cmake_minimum_required(VERSION 3.23 FATAL_ERROR)
 
 LIST(APPEND CMAKE_PREFIX_PATH "/opt/libtorch")
+# SET(CMAKE_CUDA_ARCHITECTURES all)
 find_package(Torch REQUIRED)
 find_package(TorchVision REQUIRED)
 find_package(OpenCV REQUIRED)
+# find_package(CUDAToolkit)
 
 SET(EXECUTABLE_OUTPUT_PATH ${PROJECT_SOURCE_DIR}/bin)
 SET(LIBRARY_OUTPUT_PATH ${PROJECT_SOURCE_DIR}/lib)

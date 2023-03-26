@@ -5,15 +5,10 @@
 # SuperPoint Weights File and Demo Script
 
 ## Introduction 
-This repo contains the pretrained SuperPoint network, as implemented by the originating authors. SuperPoint is a research project at Magic Leap. The SuperPoint network is a fully convolutional deep neural network trained to detect interest points and compute their accompanying descriptors. The detected points and descriptors can thus be used for various image-to-image matching tasks. For more details please see
 
 * Full paper PDF: [SuperPoint: Self-Supervised Interest Point Detection and Description](https://arxiv.org/abs/1712.07629)
 
 * Presentation PDF: [Talk at CVPR Deep Learning for Visual SLAM Workshop 2018](assets/DL4VSLAM_talk.pdf)
-
-* Authors: *Daniel DeTone, Tomasz Malisiewicz, Andrew Rabinovich*
-
-This demo showcases a simple sparse optical flow point tracker that uses SuperPoint to detect points and match them across video sequences. The repo contains two core files (1) a PyTorch weights file and (2) a python deployment script that defines the network, loads images and runs the pytorch weights file on them, creating a sparse optical flow visualization. Here are videos of the demo running on various publically available datsets:  
 
 Freiburg RGBD:  
 <img src="assets/processed_freiburg.gif" width="240">
@@ -28,27 +23,40 @@ MonoVO:
 <img src="assets/processed_monovo.gif" width="240">
 
 
-## Dependencies
-* [OpenCV](https://opencv.org/) python >= 3.4
-* [PyTorch](https://pytorch.org/) >= 0.4
+## Dependencies: C++
+* CMake and a C++ compiler, tested on Ubuntu 22.04:
+    ```sh
+    sudo apt-get install cmake g++
+    ```
+* [OpenCV](https://opencv.org/), tested with version 4.5.4
+    ```sh
+    sudo apt-get install libopencv-dev
+    ```
+* [LibTorch](https://pytorch.org/), tested with version 1.13.1+cu117
+    ```sh
+    wget https://download.pytorch.org/libtorch/cu118/libtorch-cxx11-abi-shared-with-deps-2.0.0%2Bcu118.zip
+    unzip libtorch-cxx11-abi-shared-with-deps-1.9.0+cu111.zip
+    sudo mv libtorch /opt/
+    ```
 * [TorchVision](https://github.com/pytorch/vision) compiled from source with CUDA support.
  To compile the TorchVision C++ library (assumes libtorch is installed in
  `/opt/libtorch`, modify based on your installation path):
-```sh   
-git clone git@github.com:pytorch/vision.git torchvision
-cd torchvision
-mkdir -p build
-cd build
-cmake .. -DWITH_CUDA=ON -DTorch_DIR=/opt/libtorch/share/cmake/Torch
-make -j`nproc`
-sudo make install
-```
+    ```sh   
+    git clone git@github.com:pytorch/vision.git torchvision
+    cd torchvision
+    mkdir -p build
+    cd build
+    cmake .. -DWITH_CUDA=ON -DTorch_DIR=/opt/libtorch/share/cmake/Torch
+    make -j`nproc`
+    sudo make install
+    ```
 
-This repo depends on a few standard pythonic modules, plus OpenCV and PyTorch. These commands usually work (tested on Mac and Ubuntu) for installing the two libraries:
-
+## Dependencies: Python
+The Conda library dependencies are broken for opencv + pytorch +
+torchvision with CUDA support. We recommend using the pip dependencies:
 ```sh
 pip install opencv-python
-pip install torch
+pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
 ```
 
 ## Running the Demo
