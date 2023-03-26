@@ -31,6 +31,18 @@ MonoVO:
 ## Dependencies
 * [OpenCV](https://opencv.org/) python >= 3.4
 * [PyTorch](https://pytorch.org/) >= 0.4
+* [TorchVision](https://github.com/pytorch/vision) compiled from source with CUDA support.
+ To compile the TorchVision C++ library (assumes libtorch is installed in
+ `/opt/libtorch`, modify based on your installation path):
+```sh   
+git clone git@github.com:pytorch/vision.git torchvision
+cd torchvision
+mkdir -p build
+cd build
+cmake .. -DWITH_CUDA=ON -DTorch_DIR=/opt/libtorch/share/cmake/Torch
+make -j`nproc`
+sudo make install
+```
 
 This repo depends on a few standard pythonic modules, plus OpenCV and PyTorch. These commands usually work (tested on Mac and Ubuntu) for installing the two libraries:
 
