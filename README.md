@@ -66,36 +66,24 @@ This demo will run the SuperPoint network on an image sequence and compute point
 2. A video file, such as .mp4 or .avi
 3. A USB Webcam
 
-### Run the demo on provided directory of images in CPU-mode:
-
-```sh
-./demo_superpoint.py assets/icl_snippet/
-```
-You should see the following output from the ICL-NUIM sequence snippet:  
-
-<img src="assets/processed_icl.gif" width="160">
-
-### Run the demo on provided .mp4 file in GPU-mode:
-
-```sh
-./demo_superpoint.py assets/nyu_snippet.mp4 --cuda
-```
-You should see the following output from the NYU sequence snippet:  
-
-<img src="assets/processed_nyu.gif" width="160">
-
-### Run a live demo via webcam (id #1) in CPU-mode:
-
-```sh
-./demo_superpoint.py camera --camid=1
-```
-
-### Run the demo on a remote GPU (no display) on 640x480 images and write the output to `myoutput/`
-```sh
-./demo_superpoint.py assets/icl_snippet/ --W=640 --H=480 --no_display --write --write_dir=myoutput/
-```
-
-### Additional useful command line parameters
+* Run the demo on provided directory of images in CPU-mode:
+  ```sh
+  ./demo_superpoint.py assets/icl_snippet/
+  ```
+* Run the demo on provided .mp4 file in GPU-mode:
+  ```sh
+  ./demo_superpoint.py assets/nyu_snippet.mp4 --cuda
+  ```
+* Run a live demo via webcam (id #1) in CPU-mode:
+  ```sh
+  ./demo_superpoint.py camera --camid=1
+  ```
+* Run the demo without a display on 640x480 images and write the output to `myoutput/`
+  ```sh
+  ./demo_superpoint.py assets/icl_snippet/ --W=640 --H=480 --no_display --write --write_dir=myoutput/
+  ```
+  
+**Additional useful command line parameters**
 
 * Use `--H` to change the input image height (default: 120).
 * Use `--W` to change the input image width (default: 160).
@@ -134,26 +122,3 @@ You should see the following output from the NYU sequence snippet:
 * Use `--num` to change the number of images to perform inference on. Images
   will be reused if there are not enough (default: 100).
 * Use `--no_display` to disable the display of the output image.
-
-## BibTeX Citation
-```txt
-@inproceedings{detone18superpoint,
-  author    = {Daniel DeTone and
-               Tomasz Malisiewicz and
-               Andrew Rabinovich},
-  title     = {SuperPoint: Self-Supervised Interest Point Detection and Description},
-  booktitle = {CVPR Deep Learning for Visual SLAM Workshop},
-  year      = {2018},
-  url       = {http://arxiv.org/abs/1712.07629}
-}
-```
-
-## Additional Notes
-* We do not intend to release the SuperPoint training or evaluation code, please do not email us to ask for it.
-* We do not intend to release the Synthetic Shapes dataset used to bootstrap the SuperPoint training, please do not email us to ask for it.
-* We use bi-linear interpolation rather than the bi-cubic interpolation described in the paper to sample the descriptor as it is faster and gave us similar results.
-
-## Legal Disclaimer
-Magic Leap is proud to provide its latest samples, toolkits, and research projects on Github to foster development and gather feedback from the spatial computing community. Use of the resources within this repo is subject to (a) the license(s) included herein, or (b) if no license is included, Magic Leap's [Developer Agreement](https://id.magicleap.com/terms/developer), which is available on our [Developer Portal](https://developer.magicleap.com/).
-If you need more, just ask on the [forums](https://forum.magicleap.com/hc/en-us/community/topics)!
-We're thrilled to be part of a well-meaning, friendly and welcoming community of millions.
