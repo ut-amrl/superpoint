@@ -59,7 +59,7 @@ pip install opencv-python
 pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
 ```
 
-## Running the Demo
+## Running the Python Demo
 This demo will run the SuperPoint network on an image sequence and compute points and descriptors from the images, using a helper class called `SuperPointFrontend`. The tracks are formed by the `PointTracker` class which finds sequential pair-wise nearest neighbors using two-way matching of the points' descriptors. The demo script uses a helper class called `VideoStreamer` which can process inputs from three different input streams:
 
 1. A directory of images, such as .png or .jpg
@@ -98,6 +98,9 @@ This demo will run the SuperPoint network on an image sequence and compute point
 * Use `--save_matches` to save frame to frame matches (default: False).
 * Press the `q` key to quit.
 
+
+## Running the C++ demo
+
 ### Run PyTorch tracing to save the model as a TorchScript file
 ```sh
 ./cpp_export.py
@@ -109,7 +112,7 @@ This demo will run the SuperPoint network on an image sequence and compute point
 * Use `--W` to change the input image width (default: 640).
 * Use `--weights_path` to change the path to the pretrained weights file (default: superpoint_v1.pth).
 
-### Run the C++ demo
+### Run Inference
 ```sh
 ./bin/superpoint_script_test
 ```
